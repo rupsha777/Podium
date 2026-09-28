@@ -2,6 +2,8 @@ import Link from "next/link";
 import { getEvents } from "@/actions/events";
 import { formatDateTime, isDeadlinePassed } from "@/lib/utils";
 import { StatusBadge } from "@/components/StatusBadge";
+import { requireAdmin } from "@/lib/session";
+import { redirect } from "next/navigation";
 import {
   ShieldCheck,
   PlusCircle,
@@ -16,6 +18,11 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function AdminHubPage() {
+  const check = await requireAdmin();
+  if (!check.ok) {
+    redirect("/");
+  }
+
   const result = await getEvents();
   const events = result.success && result.data ? result.data : [];
 

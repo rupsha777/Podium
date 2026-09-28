@@ -4,8 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireAdmin, requireJudge } from "@/lib/session";
 
-const { users, submissions, judgeAssignments, scores } = schema;
-
+const { users, submissions, judgeAssignments, scores, rubrics } = schema;
 // Admin: invite a judge by email and assign them to every submission in the event
 export async function inviteJudge(eventId: string, email: string) {
   const check = await requireAdmin();
@@ -130,5 +129,80 @@ export async function saveScores(
   } catch (e) {
     console.error(e);
     return { success: false, error: "Could not save scores" };
+  }
+}
+// Admin: list judges already invited to an event
+export async function getJudgesForEvent(eventId: string) {
+  const check = await requireAdmin();
+  if (!check.ok) return { success: false, error: check.error };
+
+  try {
+    const rows = await db
+      .select({ judgeId: users.id, email: users.email })
+      .from(judgeAssignments)
+      .innerJoin(users, eq(judgeAssignments.judgeId, users.id))
+      .where(eq(judgeAssignments.eventId, eventId));
+
+    const map = new Map<string, { judgeId: string; email: string; count: number }>();
+    for (const r of rows) {
+      const cur = map.get(r.judgeId);
+      if (cur) cur.count += 1;
+      else map.set(r.judgeId, { judgeId: r.judgeId, email: r.email, count: 1 });
+    }
+    return { success: true, data: Array.from(map.values()) };
+  } catch (e) {
+    console.error(e);
+    return { success: false, error: "Could not load judges" };
+  }
+}
+
+// Judge: load one assignment with its rubric and any earlier scores
+export async function getAssignmentForScoring(assignmentId: string) {
+  const check = await requireJudge();
+  if (!check.ok) return { success: false, error: check.error };
+
+  try {
+    const [row] = await db
+      .select({
+        assignmentId: judgeAssignments.id,
+        eventId: judgeAssignments.eventId,
+        submission: submissions,
+      })
+      .from(judgeAssignments)
+      .innerJoin(submissions, eq(judgeAssignments.submissionId, submissions.id))
+      .where(
+        and(
+          eq(judgeAssignments.id, assignmentId),
+          eq(judgeAssignments.judgeId, check.user.id)
+        )
+      );
+    if (!row) return { success: false, error: "Assignment not found" };
+
+    const eventRubrics = await db.query.rubrics.findMany({
+      where: eq(rubrics.eventId, row.eventId),
+      with: { criteria: true },
+    });
+
+    const existing = await db
+      .select()
+      .from(scores)
+      .where(eq(scores.judgeAssignmentId, assignmentId));
+
+    return {
+      success: true,
+      data: {
+        assignmentId: row.assignmentId,
+        submission: row.submission,
+        rubrics: eventRubrics,
+        scores: existing.map((s) => ({
+          criterionId: s.criterionId,
+          value: s.value,
+          notes: s.notes,
+        })),
+      },
+    };
+  } catch (e) {
+    console.error(e);
+    return { success: false, error: "Could not load assignment" };
   }
 }
