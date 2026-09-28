@@ -1,9 +1,10 @@
 "use server";
 // src/actions/rubrics.ts
 
-import { db } from "@/db"; // adjust if your db client is exported elsewhere
+import { db } from "@/db";
 import { rubrics, criteria, events } from "@/db/schema";
 import { eq, asc } from "drizzle-orm";
+import { requireAdmin } from "@/lib/session";
 
 // ----------------------------------------------------
 // READ: get all rubrics (with criteria) for an event
@@ -34,13 +35,12 @@ export async function getRubricsForEvent(eventSlug: string) {
 }
 
 // ----------------------------------------------------
-// CREATE: a new rubric for an event
+// CREATE: a new rubric for an event (admin only)
 // ----------------------------------------------------
-import { requireAdmin } from "@/lib/session";
-
-const check = await requireAdmin();
-if (!check.ok) return { success: false, error: check.error };
 export async function createRubric(eventSlug: string, name: string) {
+  const check = await requireAdmin();
+  if (!check.ok) return { success: false, error: check.error };
+
   try {
     if (!name?.trim()) {
       return { success: false, error: "Rubric name is required" };
@@ -70,16 +70,15 @@ export async function createRubric(eventSlug: string, name: string) {
 }
 
 // ----------------------------------------------------
-// CREATE: add a criterion to a rubric
+// CREATE: add a criterion to a rubric (admin only)
 // ----------------------------------------------------
-import { requireAdmin } from "@/lib/session";
-
-const check = await requireAdmin();
-if (!check.ok) return { success: false, error: check.error };
 export async function addCriterion(
   rubricId: string,
   data: { name: string; weight: number; maxScore: number }
 ) {
+  const check = await requireAdmin();
+  if (!check.ok) return { success: false, error: check.error };
+
   try {
     if (!data.name?.trim()) {
       return { success: false, error: "Criterion name is required" };
@@ -106,13 +105,12 @@ export async function addCriterion(
 }
 
 // ----------------------------------------------------
-// DELETE: remove a criterion
+// DELETE: remove a criterion (admin only)
 // ----------------------------------------------------
-import { requireAdmin } from "@/lib/session";
-
-const check = await requireAdmin();
-if (!check.ok) return { success: false, error: check.error };
 export async function deleteCriterion(criterionId: string) {
+  const check = await requireAdmin();
+  if (!check.ok) return { success: false, error: check.error };
+
   try {
     await db.delete(criteria).where(eq(criteria.id, criterionId));
     return { success: true };

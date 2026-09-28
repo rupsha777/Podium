@@ -14,3 +14,11 @@ export async function requireAdmin() {
   }
   return { ok: true as const, user };
 }
+export async function requireJudge() {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false as const, error: "Not signed in" };
+  if (user.role !== "judge" && user.role !== "admin") {
+    return { ok: false as const, error: "Judges only" };
+  }
+  return { ok: true as const, user };
+}
