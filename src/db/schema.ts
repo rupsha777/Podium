@@ -4,6 +4,7 @@ import {
   timestamp,
   boolean,
   integer,
+  real,
   primaryKey,
   pgEnum,
   uniqueIndex,
@@ -93,6 +94,42 @@ export const tracks = pgTable("tracks", {
   description: text("description"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+// ---------------------------------------------
+// DOMAIN TABLES: RUBRICS & CRITERIA
+// ---------------------------------------------
+export const rubrics = pgTable("rubrics", {
+  id: text("id").primaryKey(),
+  eventId: text("event_id")
+    .notNull()
+    .references(() => events.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const criteria = pgTable("criteria", {
+  id: text("id").primaryKey(),
+  rubricId: text("rubric_id")
+    .notNull()
+    .references(() => rubrics.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  weight: real("weight").notNull().default(1),
+  maxScore: integer("max_score").notNull().default(10),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export const rubricsRelations = relations(rubrics, ({ one, many }) => ({
+  event: one(events, {
+    fields: [rubrics.eventId],
+    references: [events.id],
+  }),
+  criteria: many(criteria),
+}));
+
+export const criteriaRelations = relations(criteria, ({ one }) => ({
+  rubric: one(rubrics, {
+    fields: [criteria.rubricId],
+    references: [rubrics.id],
+  }),
+}));
 
 // ----------------------------------------------------
 // DOMAIN TABLES: TEAMS & MEMBERS
@@ -164,24 +201,10 @@ export const submissionTracks = pgTable(
 // SHARED SCHEMA: JUDGING TABLES (Person B's domain)
 // Note: Kept strictly aligned with specification so database schema is unified.
 // ----------------------------------------------------
-export const rubrics = pgTable("rubrics", {
-  id: text("id").primaryKey(),
-  eventId: text("event_id")
-    .notNull()
-    .references(() => events.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
 
-export const criteria = pgTable("criteria", {
-  id: text("id").primaryKey(),
-  rubricId: text("rubric_id")
-    .notNull()
-    .references(() => rubrics.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  weight: integer("weight").notNull().default(1),
-  maxScore: integer("max_score").notNull().default(10),
-});
+
+
+
 
 export const judgeAssignments = pgTable("judge_assignments", {
   id: text("id").primaryKey(),
