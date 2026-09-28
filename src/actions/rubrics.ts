@@ -36,6 +36,10 @@ export async function getRubricsForEvent(eventSlug: string) {
 // ----------------------------------------------------
 // CREATE: a new rubric for an event
 // ----------------------------------------------------
+import { requireAdmin } from "@/lib/session";
+
+const check = await requireAdmin();
+if (!check.ok) return { success: false, error: check.error };
 export async function createRubric(eventSlug: string, name: string) {
   try {
     if (!name?.trim()) {
@@ -68,6 +72,10 @@ export async function createRubric(eventSlug: string, name: string) {
 // ----------------------------------------------------
 // CREATE: add a criterion to a rubric
 // ----------------------------------------------------
+import { requireAdmin } from "@/lib/session";
+
+const check = await requireAdmin();
+if (!check.ok) return { success: false, error: check.error };
 export async function addCriterion(
   rubricId: string,
   data: { name: string; weight: number; maxScore: number }
@@ -100,6 +108,10 @@ export async function addCriterion(
 // ----------------------------------------------------
 // DELETE: remove a criterion
 // ----------------------------------------------------
+import { requireAdmin } from "@/lib/session";
+
+const check = await requireAdmin();
+if (!check.ok) return { success: false, error: check.error };
 export async function deleteCriterion(criterionId: string) {
   try {
     await db.delete(criteria).where(eq(criteria.id, criterionId));
