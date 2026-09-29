@@ -1,5 +1,5 @@
 "use server";
-
+import { syncJudgeAssignmentsInternal } from "@/actions/judging";
 import { db } from "@/db";
 import { submissions, submissionTracks, events, teams, teamMembers } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -122,13 +122,16 @@ export async function saveOrUpdateSubmission(input: SaveSubmissionInput) {
         }
       }
     }
-
     revalidatePath(`/events/${event.slug}`);
     revalidatePath(`/events/${event.slug}/submit`);
     revalidatePath(`/events/${event.slug}/gallery`);
     revalidatePath(`/admin/events/${eventId}/dashboard`);
 
-    return {
+    if (status === "submitted") {
+      await syncJudgeAssignmentsInternal(eventId);
+    }
+
+   return {
       success: true,
       data: {
         id: submissionId,
@@ -141,6 +144,9 @@ export async function saveOrUpdateSubmission(input: SaveSubmissionInput) {
     return { success: false, error: error.message || "Failed to save submission." };
   }
 }
+    
+       
+
 
 export async function getPublicGallery(eventSlug: string) {
   try {

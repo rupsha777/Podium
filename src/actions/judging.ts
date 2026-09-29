@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireAdmin, requireJudge } from "@/lib/session";
 
-const { users, submissions, judgeAssignments, scores, rubrics } = schema;
+const { users, submissions, judgeAssignments, scores, rubrics, teamMembers } = schema;
 // Admin: invite a judge by email and assign them to every submission in the event
 export async function inviteJudge(eventId: string, email: string) {
   const check = await requireAdmin();
@@ -32,8 +32,8 @@ export async function inviteJudge(eventId: string, email: string) {
       await db.update(users).set({ role: "judge" }).where(eq(users.id, judge.id));
     }
 
-    const eventSubmissions = await db
-      .select({ id: submissions.id })
+        const eventSubmissions = await db
+      .select({ id: submissions.id, teamId: submissions.teamId })
       .from(submissions)
       .where(eq(submissions.eventId, eventId));
 
@@ -45,15 +45,21 @@ export async function inviteJudge(eventId: string, email: string) {
       );
     const alreadyAssigned = new Set(existing.map((e) => e.submissionId));
 
+    const judgeTeams = await db
+      .select({ teamId: teamMembers.teamId })
+      .from(teamMembers)
+      .where(eq(teamMembers.userId, judge.id));
+    const judgeOwnTeams = new Set(judgeTeams.map((t) => t.teamId));
+
     const toAdd = eventSubmissions
-      .filter((s) => !alreadyAssigned.has(s.id))
+      .filter((s) => !alreadyAssigned.has(s.id) && !judgeOwnTeams.has(s.teamId))
       .map((s) => ({
         id: crypto.randomUUID(),
         eventId,
         judgeId: judge.id,
         submissionId: s.id,
       }));
-
+        
     if (toAdd.length > 0) await db.insert(judgeAssignments).values(toAdd);
 
     return { success: true, data: { judgeId: judge.id, assigned: toAdd.length } };
@@ -204,5 +210,52 @@ export async function getAssignmentForScoring(assignmentId: string) {
   } catch (e) {
     console.error(e);
     return { success: false, error: "Could not load assignment" };
+  }
+}
+// Admin: keep all judges assigned to all submissions (call after new submissions come in)
+// Internal: no admin check, callable from other server actions after a submission
+export async function syncJudgeAssignmentsInternal(eventId: string) {
+  const eventJudges = await db
+    .select({ judgeId: judgeAssignments.judgeId })
+    .from(judgeAssignments)
+    .where(eq(judgeAssignments.eventId, eventId));
+  const judgeIds = [...new Set(eventJudges.map((j) => j.judgeId))];
+
+  if (judgeIds.length === 0) return { added: 0 };
+
+  const eventSubmissions = await db
+    .select({ id: submissions.id })
+    .from(submissions)
+    .where(eq(submissions.eventId, eventId));
+
+  const existing = await db
+    .select({ judgeId: judgeAssignments.judgeId, submissionId: judgeAssignments.submissionId })
+    .from(judgeAssignments)
+    .where(eq(judgeAssignments.eventId, eventId));
+  const existingSet = new Set(existing.map((e) => `${e.judgeId}:${e.submissionId}`));
+
+  const toAdd = [];
+  for (const judgeId of judgeIds) {
+    for (const sub of eventSubmissions) {
+      if (!existingSet.has(`${judgeId}:${sub.id}`)) {
+        toAdd.push({ id: crypto.randomUUID(), eventId, judgeId, submissionId: sub.id });
+      }
+    }
+  }
+
+  if (toAdd.length > 0) await db.insert(judgeAssignments).values(toAdd);
+  return { added: toAdd.length };
+}
+
+// Admin-facing wrapper (e.g. a manual "Sync now" button)
+export async function syncJudgeAssignments(eventId: string) {
+  const check = await requireAdmin();
+  if (!check.ok) return { success: false, error: check.error };
+  try {
+    const result = await syncJudgeAssignmentsInternal(eventId);
+    return { success: true, data: result };
+  } catch (e) {
+    console.error(e);
+    return { success: false, error: "Could not sync assignments" };
   }
 }
