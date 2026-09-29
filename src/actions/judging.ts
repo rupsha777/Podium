@@ -32,7 +32,7 @@ export async function inviteJudge(eventId: string, email: string) {
       await db.update(users).set({ role: "judge" }).where(eq(users.id, judge.id));
     }
 
-        const eventSubmissions = await db
+     const eventSubmissions = await db
       .select({ id: submissions.id, teamId: submissions.teamId })
       .from(submissions)
       .where(eq(submissions.eventId, eventId));
@@ -224,7 +224,7 @@ export async function syncJudgeAssignmentsInternal(eventId: string) {
   if (judgeIds.length === 0) return { added: 0 };
 
   const eventSubmissions = await db
-    .select({ id: submissions.id })
+    .select({ id: submissions.id, teamId: submissions.teamId })
     .from(submissions)
     .where(eq(submissions.eventId, eventId));
 
@@ -234,10 +234,21 @@ export async function syncJudgeAssignmentsInternal(eventId: string) {
     .where(eq(judgeAssignments.eventId, eventId));
   const existingSet = new Set(existing.map((e) => `${e.judgeId}:${e.submissionId}`));
 
+  const allMemberships = await db
+    .select({ userId: teamMembers.userId, teamId: teamMembers.teamId })
+    .from(teamMembers);
+
+  const memberOfTeam = new Set(
+    allMemberships
+      .filter((m) => judgeIds.includes(m.userId))
+      .map((m) => `${m.userId}:${m.teamId}`)
+  );
+
   const toAdd = [];
   for (const judgeId of judgeIds) {
     for (const sub of eventSubmissions) {
-      if (!existingSet.has(`${judgeId}:${sub.id}`)) {
+      const isOwnTeam = memberOfTeam.has(`${judgeId}:${sub.teamId}`);
+      if (!existingSet.has(`${judgeId}:${sub.id}`) && !isOwnTeam) {
         toAdd.push({ id: crypto.randomUUID(), eventId, judgeId, submissionId: sub.id });
       }
     }
@@ -257,5 +268,79 @@ export async function syncJudgeAssignments(eventId: string) {
   } catch (e) {
     console.error(e);
     return { success: false, error: "Could not sync assignments" };
+  }
+}
+// Admin: compute ranked leaderboard for an event
+export async function getLeaderboard(eventId: string) {
+  const check = await requireAdmin();
+  if (!check.ok) return { success: false, error: check.error };
+
+  try {
+    const eventSubmissions = await db
+      .select()
+      .from(submissions)
+      .where(eq(submissions.eventId, eventId));
+
+    const eventRubrics = await db.query.rubrics.findMany({
+      where: eq(rubrics.eventId, eventId),
+      with: { criteria: true },
+    });
+    const allCriteria = eventRubrics.flatMap((r) => r.criteria);
+    const criteriaMap = new Map(allCriteria.map((c) => [c.id, c]));
+    const maxPossible = allCriteria.reduce((sum, c) => sum + c.weight * c.maxScore, 0);
+
+    const results = [];
+
+    for (const sub of eventSubmissions) {
+      const subAssignments = await db
+        .select({ id: judgeAssignments.id, judgeId: judgeAssignments.judgeId })
+        .from(judgeAssignments)
+        .where(eq(judgeAssignments.submissionId, sub.id));
+
+      const judgeScores: number[] = [];
+
+      for (const assignment of subAssignments) {
+        const rows = await db
+          .select()
+          .from(scores)
+          .where(eq(scores.judgeAssignmentId, assignment.id));
+
+        if (rows.length === 0) continue; // judge hasn't scored yet
+
+        let weightedTotal = 0;
+        for (const s of rows) {
+          const criterion = criteriaMap.get(s.criterionId);
+          if (criterion) weightedTotal += s.value * criterion.weight;
+        }
+
+        const percentage = maxPossible > 0 ? (weightedTotal / maxPossible) * 100 : 0;
+        judgeScores.push(percentage);
+      }
+
+      const avgScore =
+        judgeScores.length > 0
+          ? judgeScores.reduce((a, b) => a + b, 0) / judgeScores.length
+          : null;
+
+      results.push({
+        submissionId: sub.id,
+        title: sub.title,
+        teamId: sub.teamId,
+        judgesScored: judgeScores.length,
+        judgesAssigned: subAssignments.length,
+        avgScore,
+      });
+    }
+
+    results.sort((a, b) => {
+      if (a.avgScore === null) return 1;
+      if (b.avgScore === null) return -1;
+      return b.avgScore - a.avgScore;
+    });
+
+    return { success: true, data: results };
+  } catch (e) {
+    console.error(e);
+    return { success: false, error: "Could not compute leaderboard" };
   }
 }
