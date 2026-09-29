@@ -1,10 +1,19 @@
 import { getLeaderboard } from "@/actions/judging";
+import { requireAdmin } from "@/lib/session";
+import { redirect } from "next/navigation";
+
+export const dynamic = "force-dynamic";
 
 export default async function LeaderboardPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const check = await requireAdmin();
+  if (!check.ok) {
+    redirect("/");
+  }
+
   const { id: eventId } = await params;
   const result = await getLeaderboard(eventId);
 
@@ -21,6 +30,9 @@ export default async function LeaderboardPage({
   return (
     <main className="mx-auto max-w-4xl p-6">
       <h1 className="mb-6 text-3xl font-bold">Leaderboard</h1>
+      <a href={`/api/events/${eventId}/leaderboard-csv`} className="mb-4 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-white">
+        Download CSV
+      </a>
       <table className="w-full text-left text-sm">
         <thead className="border-b border-white/20">
           <tr>

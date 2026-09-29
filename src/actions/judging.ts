@@ -344,3 +344,19 @@ export async function getLeaderboard(eventId: string) {
     return { success: false, error: "Could not compute leaderboard" };
   }
 }
+// Admin: export leaderboard as CSV
+export async function exportLeaderboardCSV(eventId: string) {
+  const result = await getLeaderboard(eventId);
+  if (!result.success || !result.data) return { success: false, error: result.error };
+
+  const header = "Rank,Project,Avg Score (%),Judges Scored,Judges Assigned\n";
+  const rows = result.data
+    .map((r, i) => {
+      const score = r.avgScore !== null ? r.avgScore.toFixed(1) : "N/A";
+      const title = `"${r.title.replace(/"/g, '""')}"`;
+      return `${i +1},${title},${score},${r.judgesScored},${r.judgesAssigned}`;
+    })
+    .join("\n");
+
+  return { success: true, data: header + rows };
+}
